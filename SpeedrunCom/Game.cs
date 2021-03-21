@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 
@@ -11,17 +10,7 @@ namespace VerificationBot.SpeedrunCom
 {
     public class Game
     {
-        private static readonly HttpClient Http;
-        private static readonly Random Rnd = new Random();
-
-        static Game()
-        {
-            Http = new HttpClient();
-            Http.DefaultRequestHeaders.CacheControl = new CacheControlHeaderValue
-            {
-                NoCache = true
-            };
-        }
+        public static HttpClient Http { get; set; } = new HttpClient();
 
         private readonly JObject Data;
 
@@ -63,7 +52,7 @@ namespace VerificationBot.SpeedrunCom
             }
         }
 
-        protected Game(JObject data) => Data = data;
+        public Game(JObject data) => Data = data;
 
         public static async Task<Game> Find(string name)
         {
@@ -83,7 +72,7 @@ namespace VerificationBot.SpeedrunCom
             }
 
             // Attempt to fetch game data
-            HttpResponseMessage resp = await Http.GetAsync(ApiUrls.Games + name);
+            HttpResponseMessage resp = await Http.GetAsync("https://www.speedrun.com/api/v1/games/" + name);
             if (!resp.IsSuccessStatusCode)
             {
                 return null;
@@ -98,9 +87,13 @@ namespace VerificationBot.SpeedrunCom
             return new Game(data);
         }
 
-        public async Task<List<Run>> GetRuns(RunStatus status = RunStatus.Any)
+        public async IAsyncEnumerable<Run> GetRuns(RunStatus status = RunStatus.Any)
         {
-            string url = RunsUrl + "&embed=category.variables,players,level&max=200&nocache=" + Rnd.Next(int.MaxValue);
+            string url = RunsUrl + "&orderby=submitted&direction=desc&embed=category.variables,players,level&max=200";
+            // Runs are fetched suspiciously quickly after first call
+            // Don't think NoCache header works properly, adding some garbage on the url instead
+            url += "&requestTime=" + DateTime.UtcNow.Ticks;
+
             switch (status)
             {
                 case RunStatus.New:
@@ -116,17 +109,35 @@ namespace VerificationBot.SpeedrunCom
                     break;
             }
 
-            return await GetRuns(url);
+            await foreach (Run run in GetRuns(url))
+            {
+                yield return run;
+            }
         }
 
-        private async Task<List<Run>> GetRuns(string url)
+        private async IAsyncEnumerable<Run> GetRuns(string url)
         {
-            List<Run> runs = new List<Run>();
-            HttpResponseMessage resp = await Http.GetAsync(url);
-            resp.EnsureSuccessStatusCode();
+            JObject contentObj;
+            using (HttpResponseMessage resp = await Http.GetAsync(url))
+            {
+                resp.EnsureSuccessStatusCode();
+
+                // Check for data on current page
+                // This should always exist unless something goes wrong
+                contentObj = JObject.Parse(await resp.Content.ReadAsStringAsync());
+            }
+
+            if (!contentObj.TryGetValue("data", out JArray data))
+            {
+                throw new InvalidDataException();
+            }
+
+            foreach (JObject obj in data)
+            {
+                yield return new Run(this, obj);
+            }
 
             // Add data from next page recursively
-            JObject contentObj = JObject.Parse(await resp.Content.ReadAsStringAsync());
             if (contentObj.TryGetValue("pagination", out JObject pagination)
                 && pagination.TryGetValue("links", out JArray links))
             {
@@ -137,26 +148,20 @@ namespace VerificationBot.SpeedrunCom
                         && obj.ContainsKey("uri")
                     )?["uri"]?.ToString();
 
+                // Set stuff null to mark it for GC before recursing
+                contentObj = null;
+                data = null;
+                pagination = null;
+                links = null;
+
                 if (nextUrl != null)
                 {
-                    runs.AddRange(await GetRuns(nextUrl));
+                    await foreach (Run run in GetRuns(nextUrl))
+                    {
+                        yield return run;
+                    }
                 }
             }
-
-            // Check for data on current page
-            // This should always exist unless something goes wrong
-            if (!contentObj.TryGetValue("data", out JArray data))
-            {
-                throw new InvalidDataException();
-            }
-
-            // Reverse each page + recursion for deepest first = most recent runs first
-            foreach (JObject obj in data.Reverse())
-            {
-                runs.Add(new Run(obj));
-            }
-
-            return runs;
         }
     }
 }

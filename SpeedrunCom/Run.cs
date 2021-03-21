@@ -1,14 +1,19 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using System.Text;
+using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 
 namespace VerificationBot.SpeedrunCom
 {
     public class Run
     {
+        public static HttpClient Http { get; set; } = new HttpClient();
+
         private readonly JObject Data;
+        public readonly Game Game;
 
         private string _id;
         public string Id
@@ -29,6 +34,64 @@ namespace VerificationBot.SpeedrunCom
         private TimeSpan? _time;
         public TimeSpan Time
             => _time ??= TimeSpan.FromSeconds(Convert.ToDouble(Data.TryGet()["times"]?["primary_t"]?.As<JValue>()?.Value ?? 0.0));
+
+        private RunStatus _status;
+        public RunStatus Status
+            => _status == default
+                ? _status = Enum.TryParse(Data.TryGet()["status"]?["status"]?.ToString(), out RunStatus s)
+                    ? s
+                    : RunStatus.New
+                : _status;
+
+        private DateTime _submitted;
+        public DateTime Submitted
+            => _submitted == default
+                ? _submitted = DateTime.TryParse(Data.TryGet()["submitted"]?.ToString(), out DateTime d)
+                    ? d
+                    : DateTime.UnixEpoch
+                : _submitted;
+
+        private DateTime _verified;
+        public DateTime Verified
+            => _verified == default
+                ? _verified = DateTime.TryParse(Data.TryGet()["status"]?["verify-date"]?.ToString(), out DateTime d)
+                    ? d
+                    : DateTime.UnixEpoch
+                : _verified;
+
+        private string _video;
+        public string Video
+        {
+            get
+            {
+                if (_video != null)
+                {
+                    return _video;
+                }
+
+                JObject videos = Data.TryGet()["videos"]?.As<JObject>();
+                if ((bool)videos?.ContainsKey("text"))
+                {
+                    _video = videos["text"].ToString();
+                }
+                else if ((bool)videos?.ContainsKey("links"))
+                {
+                    List<string> videoLinks = new List<string>();
+                    foreach (JObject obj in (videos["links"] as JArray) ?? new JArray())
+                    {
+                        string uri = obj.TryGet()["uri"]?.ToString();
+                        if (uri != null)
+                        {
+                            videoLinks.Add(uri);
+                        }
+                    }
+
+                    _video = string.Join("\n", videoLinks);
+                }
+
+                return _video;
+            }
+        }
 
         private IList<string> _players;
         public IList<string> Players
@@ -104,9 +167,27 @@ namespace VerificationBot.SpeedrunCom
             }
         }
 
-        internal Run(JObject data)
+        public Run(Game game, JObject data)
         {
+            Game = game;
             Data = data;
+        }
+
+        private User _examiner;
+        public async Task<User> GetExaminer()
+        {
+            if (_examiner != null)
+            {
+                return _examiner;
+            }
+
+            string examinerId = Data.TryGet()["status"]?["examiner"]?.ToString();
+            if (examinerId == null)
+            {
+                return null;
+            }
+
+            return _examiner = await User.FindById(examinerId);
         }
 
         public string GetFullCategory()
@@ -128,6 +209,35 @@ namespace VerificationBot.SpeedrunCom
             }
 
             return cat.ToString();
+        }
+
+        public async Task UpdateStatus(RunStatus status, string reason = null)
+        {
+            if (status != RunStatus.Verified && status != RunStatus.Rejected)
+            {
+                throw new ArgumentException("Cannot update a run's status to " + status.ToString());
+            }
+
+            if (status == RunStatus.Rejected && reason == null)
+            {
+                throw new ArgumentNullException("Must supply a reason for rejection");
+            }
+
+            StringBuilder content = new StringBuilder();
+            content.Append("{\"status\":{\"status\":\"");
+            content.Append(status.ToString().ToLower());
+            content.Append("\"");
+
+            if (status == RunStatus.Rejected)
+            {
+                content.Append(",\"reason\":\"");
+                content.Append(reason);
+                content.Append("\"");
+            }
+
+            content.Append("}}");
+            HttpResponseMessage resp = await Http.PutAsync("https://speedrun.com/api/v1/runs/" + Id + "/status", new StringContent(content.ToString()));
+            resp.EnsureSuccessStatusCode();
         }
     }
 

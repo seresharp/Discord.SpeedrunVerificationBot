@@ -16,7 +16,7 @@ namespace VerificationBot
             => new ValueTask<IEnumerable<IPrefix>>(new IPrefix[]
                 {
                     MentionPrefix.Instance,
-                    new StringPrefix(Config.Prefix)
+                    new StringPrefix(Config.GetOrAddGuild(message.Guild.Id).Prefix)
                 });
     }
 }

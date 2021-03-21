@@ -1,11 +1,10 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Timers;
 using Disqord;
 using Disqord.Bot;
 using Disqord.Bot.Prefixes;
@@ -23,8 +22,9 @@ namespace VerificationBot
     {
         public Config Config { get; }
         public new ILogger Logger { get; }
+        public IReadOnlyDictionary<string, IReadOnlyList<string>> AllCommandNames { get; }
 
-        private readonly Timer CheckRunsTimer;
+        private readonly Timer UpdateTimer;
 
         public VerificationBot(TokenType tokenType, Config config,
             ILogger logger, DiscordBotConfiguration configuration)
@@ -32,15 +32,26 @@ namespace VerificationBot
         {
             Config = config;
             Logger = logger;
-            AddModules(Assembly.GetExecutingAssembly());
+            AddModules(GetType().Assembly);
 
-            CheckRunsTimer = new Timer
+            // Create command name list
+            Dictionary<string, IReadOnlyList<string>> modules = new();
+            foreach (Module m in GetAllModules())
+            {
+                List<string> commands = new(m.Commands.Select(c => c.Name));
+                modules[m.Name] = commands.AsReadOnly();
+            }
+
+            AllCommandNames = modules;
+
+            // Setup update timer
+            UpdateTimer = new Timer
             {
                 AutoReset = true,
-                Interval = TimeSpan.FromSeconds(20).TotalMilliseconds
+                Interval = TimeSpan.FromSeconds(5).TotalMilliseconds
             };
 
-            CheckRunsTimer.Elapsed += CheckRunsWrapper;
+            UpdateTimer.Elapsed += UpdateBackgroundTasks;
 
             CommandExecutionFailed += OnCommandFailed;
             ReactionAdded += OnReactionAdded;
@@ -51,12 +62,12 @@ namespace VerificationBot
             IUser user = await e.User.GetAsync();
             IMessage msg = await e.Message.GetAsync();
 
-            if (user.Id == CurrentUser.Id || msg.Author.Id != CurrentUser.Id || !(e.Emoji is CustomEmoji emoji))
+            if (user.Id == CurrentUser.Id || msg.Author.Id != CurrentUser.Id || e.Emoji is not CustomEmoji emoji)
             {
                 return;
             }
 
-            foreach (ConfigRun run in GetRuns())
+            foreach (ConfigRun run in GetConfigRuns())
             {
                 if (run.MsgId != e.Message.Id)
                 {
@@ -84,99 +95,135 @@ namespace VerificationBot
             }
         }
 
-        private async void CheckRunsWrapper(object sender, ElapsedEventArgs e)
+        private bool _checkingRuns = false;
+        private bool _checkingUnmutes = false;
+        private int _updateCount = 0;
+        private void UpdateBackgroundTasks(object sender, System.Timers.ElapsedEventArgs e)
         {
-            try
+            // 1 update = 5 seconds
+            if (_updateCount % 12 == 0 && !_checkingRuns)
             {
-                await CheckRuns();
+                Task.Run(async () =>
+                {
+                    _checkingRuns = true;
+
+                    try
+                    {
+                        await CheckRuns();
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogWarning("Failed checking runs: " + ex.ToString());
+                    }
+
+                    _checkingRuns = false;
+                });
             }
-            catch (Exception ex)
+
+            if (!_checkingUnmutes)
             {
-                Logger.LogWarning("Failed checking runs: " + ex.ToString());
+                Task.Run(async () =>
+                {
+                    _checkingUnmutes = true;
+
+                    try
+                    {
+                        await Services.MuteService.CheckUnmutes(Config, Guilds);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogWarning("Failed checking unmutes: " + ex.ToString());
+                    }
+
+                    _checkingUnmutes = false;
+                });
             }
         }
 
         private async Task CheckRuns()
         {
-            foreach (ConfigChannel confChannel in Config.Channels)
+            foreach ((_, ConfigGuild confGuild) in Config.Guilds)
             {
-                RestTextChannel channel = await GetChannelAsync(confChannel.Id) as RestTextChannel;
-                if (channel == null)
+                foreach ((ulong channelId, ConcurrentSet<string> gameIds) in confGuild.TrackedGames)
                 {
-                    continue;
-                }
-
-                foreach (ConfigGame confGame in confChannel.Games)
-                {
-                    Game game = await Game.Find(confGame.Id);
-                    if (game == null)
+                    if (await GetChannelAsync(channelId) is not RestTextChannel channel)
                     {
                         continue;
                     }
 
-                    List<Run> runs = await game.GetRuns(RunStatus.New);
-
-                    foreach (ConfigRun confRun in confGame.Runs.ToArray())
+                    foreach (string gameId in gameIds)
                     {
-                        RestMessage msg = await channel.GetMessageAsync(confRun.MsgId);
-                        if (msg == null || msg.Author.Id != CurrentUser.Id)
+                        if (await Game.Find(gameId) is not Game game)
                         {
-                            confGame.Runs.Remove(confRun);
                             continue;
                         }
 
-                        Run run = runs.FirstOrDefault(r => r.Id == confRun.RunId);
-                        if (run == null)
+                        Dictionary<string, ConfigRun> oldMessages = new(confGuild.RunMessages);
+
+                        await foreach (Run run in game.GetRuns(RunStatus.New))
                         {
+                            // Check for already existing message
+                            if (oldMessages.TryGetValue(run.Id, out ConfigRun confRun))
+                            {
+                                RestMessage existingMsg = await channel.GetMessageAsync(confRun.MsgId);
+                                if (existingMsg?.Author?.Id == CurrentUser.Id)
+                                {
+                                    oldMessages.Remove(run.Id);
+                                    continue;
+                                }
+                            }
+
+                            // Send new message
+                            string time = run.Time.ToString(run.Time switch
+                            {
+                                { Days: > 0 } => "d'd 'hh':'mm':'ss'.'FFF",
+                                { Hours: > 0 } => "hh':'mm':'ss'.'FFF",
+                                _ => "mm':'ss'.'FFF"
+                            }).TrimEnd('.');
+
+                            if (time.StartsWith("0"))
+                            {
+                                time = time[1..];
+                            }
+
+                            RestMessage msg = await channel.SendMessageAsync(
+                                $"{game.Name}: {run.GetFullCategory()} in {time} by {string.Join(", ", run.Players)}\n<{run.Link}>");
+                            await msg.AddReactionAsync(new LocalCustomEmoji(774026811797405707, "claim_run"));
+
+                            confGuild.RunMessages[run.Id] = new ConfigRun
+                            {
+                                MsgId = msg.Id,
+                                RunId = run.Id
+                            };
+                        }
+
+                        // Delete old messages that weren't handled in the above loop
+                        // Only runs that aren't in queue anymore should make it here
+                        foreach ((string runId, ConfigRun confRun) in oldMessages)
+                        {
+                            if (await channel.GetMessageAsync(confRun.MsgId) is not RestMessage msg
+                                || msg.Author.Id != CurrentUser.Id)
+                            {
+                                continue;
+                            }
+
                             await msg.DeleteAsync();
-                            confGame.Runs.Remove(confRun);
-                            continue;
+                            confGuild.RunMessages.Remove(runId, out _);
                         }
-                    }
-
-                    foreach (Run run in runs)
-                    {
-                        if (confGame.Runs.Any(cr => cr.RunId == run.Id))
-                        {
-                            continue;
-                        }
-
-                        string time = run.Time.ToString(@"d\d\ hh\:mm\:ss\.fff")
-                            .Trim('0', 'd', ' ')
-                            .TrimEnd('.')
-                            .TrimStart(':');
-
-                        if (time.StartsWith("00"))
-                        {
-                            time = time.Substring(1);
-                        }
-
-                        RestMessage msg = await channel.SendMessageAsync(
-                            $"{game.Name}: {run.GetFullCategory()} in {time} by {string.Join(", ", run.Players)}\n<{run.Link}>");
-                        await msg.AddReactionAsync(new LocalCustomEmoji(774026811797405707, "claim_run"));
-
-                        confGame.Runs.Add(new ConfigRun
-                        {
-                            MsgId = msg.Id,
-                            RunId = run.Id
-                        });
                     }
                 }
             }
 
-            Config.Save("config.json");
+            await Config.Save(Program.CONFIG_FILE);
         }
 
-        private IEnumerable<ConfigRun> GetRuns()
+        private IEnumerable<ConfigRun> GetConfigRuns()
         {
-            foreach (ConfigChannel channel in Config.Channels)
+            foreach ((_, ConfigGuild guild) in Config.Guilds)
             {
-                foreach (ConfigGame game in channel.Games)
+                foreach ((_, ConfigRun run) in guild.RunMessages)
                 {
-                    foreach (ConfigRun run in game.Runs)
-                    {
-                        yield return run;
-                    }
+                    yield return run;
                 }
             }
         }
@@ -194,19 +241,20 @@ namespace VerificationBot
         }
 
         protected override ValueTask<DiscordCommandContext> GetCommandContextAsync(CachedUserMessage message, IPrefix prefix)
-            => new ValueTask<DiscordCommandContext>(new VCommandContext(this, prefix, message));
+            => new(new VCommandContext(this, prefix, message));
 
         public override async Task RunAsync(CancellationToken cancellationToken = default)
         {
-            await ApiUrls.Fill();
-            CheckRunsTimer.Start();
+            UpdateTimer.Start();
 
             await base.RunAsync(cancellationToken);
         }
 
         public override ValueTask DisposeAsync()
         {
-            CheckRunsTimer.Dispose();
+            UpdateTimer.Elapsed -= UpdateBackgroundTasks;
+            UpdateTimer.Dispose();
+
             return base.DisposeAsync();
         }
     }

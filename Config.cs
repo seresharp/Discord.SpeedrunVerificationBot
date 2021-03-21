@@ -1,50 +1,85 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Concurrent;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using Newtonsoft.Json;
 
 namespace VerificationBot
 {
     public class Config
     {
+        private static readonly SemaphoreSlim IOSemaphore = new(1, 1);
+
         public string Token;
-        public string Prefix;
-        public List<ConfigChannel> Channels = new List<ConfigChannel>();
+        public ConcurrentDictionary<ulong, ConfigGuild> Guilds = new();
 
         private Config() { }
 
-        public static Config Load(string file)
+        public static async Task<Config> Load(string file)
         {
-            if (!File.Exists(file))
-            {
-                return new Config();
-            }
+            await IOSemaphore.WaitAsync();
 
-            string json = File.ReadAllText(file);
-            Config c = JsonConvert.DeserializeObject<Config>(json);
-            return c;
+            try
+            {
+                if (!File.Exists(file))
+                {
+                    return new Config();
+                }
+
+                string json = File.ReadAllText(file);
+                Config c = JsonConvert.DeserializeObject<Config>(json);
+                return c;
+            }
+            finally
+            {
+                IOSemaphore.Release();
+            }
         }
 
-        public void Save(string file)
+        public async Task Save(string file)
         {
-            if (File.Exists(file))
-            {
-                File.Move(file, file + ".bak", true);
-            }
+            await IOSemaphore.WaitAsync();
 
-            File.WriteAllText(file, JsonConvert.SerializeObject(this));
+            try
+            {
+                if (File.Exists(file))
+                {
+                    File.Move(file, file + ".bak", true);
+                }
+
+                File.WriteAllText(file, JsonConvert.SerializeObject(this));
+            }
+            finally
+            {
+                IOSemaphore.Release();
+            }
         }
+
+        public ConfigGuild GetOrAddGuild(ulong guildId)
+            => Guilds.GetOrAdd(guildId, id => new() { Id = id });
     }
 
-    public class ConfigChannel
+    public class ConfigGuild
     {
         public ulong Id;
-        public List<ConfigGame> Games = new List<ConfigGame>();
-    }
+        public string Prefix = ";";
 
-    public class ConfigGame
-    {
-        public string Id;
-        public List<ConfigRun> Runs = new List<ConfigRun>();
+        public ConcurrentDictionary<ulong, ConcurrentSet<string>> TrackedGames = new();
+        public ConcurrentDictionary<string, ConfigRun> RunMessages = new();
+
+        public ConcurrentDictionary<ulong, Mute> CurrentMutes = new();
+        public ConcurrentDictionary<ulong, ConcurrentSet<string>> UserPermOverrides = new();
+        public ConcurrentDictionary<ulong, ConcurrentSet<string>> RolePermOverrides = new();
+
+        public ConcurrentSet<string> GetOrAddGameList(ulong channelId)
+            => TrackedGames.GetOrAdd(channelId, _ => new());
+
+        public ConcurrentSet<string> GetOrAddUserPerms(ulong userId)
+            => UserPermOverrides.GetOrAdd(userId, _ => new());
+
+        public ConcurrentSet<string> GetOrAddRolePerms(ulong roleId)
+            => RolePermOverrides.GetOrAdd(roleId, _ => new());
     }
 
     public class ConfigRun
@@ -52,5 +87,13 @@ namespace VerificationBot
         public ulong MsgId;
         public string RunId;
         public ulong ClaimedBy;
+    }
+
+    public class Mute
+    {
+        public ulong GuildId;
+        public ulong UserId;
+        public ulong[] RoleIds;
+        public DateTime UnmuteTime;
     }
 }
