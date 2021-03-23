@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -12,7 +11,7 @@ using Disqord.Events;
 using Disqord.Rest;
 using Microsoft.Extensions.Logging;
 using Qmmands;
-using VerificationBot.SpeedrunCom;
+using VerificationBot.BackgroundTasks;
 
 using Timer = System.Timers.Timer;
 
@@ -25,6 +24,7 @@ namespace VerificationBot
         public IReadOnlyDictionary<string, IReadOnlyList<string>> AllCommandNames { get; }
 
         private readonly Timer UpdateTimer;
+        private readonly BackgroundTask[] BackgroundTasks;
 
         public VerificationBot(TokenType tokenType, Config config,
             ILogger logger, DiscordBotConfiguration configuration)
@@ -44,6 +44,13 @@ namespace VerificationBot
 
             AllCommandNames = modules;
 
+            // Setup background tasks
+            BackgroundTasks = new BackgroundTask[]
+            {
+                new GenericTask(TimeSpan.FromSeconds(5), static bot => Services.MuteService.CheckUnmutes(bot.Config, bot.Guilds)),
+                new CheckRunsTask(TimeSpan.FromMinutes(1))
+            };
+
             // Setup update timer
             UpdateTimer = new Timer
             {
@@ -53,8 +60,17 @@ namespace VerificationBot
 
             UpdateTimer.Elapsed += UpdateBackgroundTasks;
 
+            // Hook bot events
             CommandExecutionFailed += OnCommandFailed;
             ReactionAdded += OnReactionAdded;
+        }
+
+        private void UpdateBackgroundTasks(object sender, System.Timers.ElapsedEventArgs e)
+        {
+            foreach (BackgroundTask task in BackgroundTasks)
+            {
+                task.TryStartTask(this);
+            }
         }
 
         private async Task OnReactionAdded(ReactionAddedEventArgs e)
@@ -93,128 +109,6 @@ namespace VerificationBot
 
                 break;
             }
-        }
-
-        private bool _checkingRuns = false;
-        private bool _checkingUnmutes = false;
-        private int _updateCount = 0;
-        private void UpdateBackgroundTasks(object sender, System.Timers.ElapsedEventArgs e)
-        {
-            // 1 update = 5 seconds
-            if (_updateCount % 12 == 0 && !_checkingRuns)
-            {
-                Task.Run(async () =>
-                {
-                    _checkingRuns = true;
-
-                    try
-                    {
-                        await CheckRuns();
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogWarning("Failed checking runs: " + ex.ToString());
-                    }
-
-                    _checkingRuns = false;
-                });
-            }
-
-            if (!_checkingUnmutes)
-            {
-                Task.Run(async () =>
-                {
-                    _checkingUnmutes = true;
-
-                    try
-                    {
-                        await Services.MuteService.CheckUnmutes(Config, Guilds);
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogWarning("Failed checking unmutes: " + ex.ToString());
-                    }
-
-                    _checkingUnmutes = false;
-                });
-            }
-        }
-
-        private async Task CheckRuns()
-        {
-            foreach ((_, ConfigGuild confGuild) in Config.Guilds)
-            {
-                foreach ((ulong channelId, ConcurrentSet<string> gameIds) in confGuild.TrackedGames)
-                {
-                    if (await GetChannelAsync(channelId) is not RestTextChannel channel)
-                    {
-                        continue;
-                    }
-
-                    foreach (string gameId in gameIds)
-                    {
-                        if (await Game.Find(gameId) is not Game game)
-                        {
-                            continue;
-                        }
-
-                        Dictionary<string, ConfigRun> oldMessages = new(confGuild.RunMessages);
-
-                        await foreach (Run run in game.GetRuns(RunStatus.New))
-                        {
-                            // Check for already existing message
-                            if (oldMessages.TryGetValue(run.Id, out ConfigRun confRun))
-                            {
-                                RestMessage existingMsg = await channel.GetMessageAsync(confRun.MsgId);
-                                if (existingMsg?.Author?.Id == CurrentUser.Id)
-                                {
-                                    oldMessages.Remove(run.Id);
-                                    continue;
-                                }
-                            }
-
-                            // Send new message
-                            string time = run.Time.ToString(run.Time switch
-                            {
-                                { Days: > 0 } => "d'd 'hh':'mm':'ss'.'FFF",
-                                { Hours: > 0 } => "hh':'mm':'ss'.'FFF",
-                                _ => "mm':'ss'.'FFF"
-                            }).TrimEnd('.');
-
-                            if (time.StartsWith("0"))
-                            {
-                                time = time[1..];
-                            }
-
-                            RestMessage msg = await channel.SendMessageAsync(
-                                $"{game.Name}: {run.GetFullCategory()} in {time} by {string.Join(", ", run.Players)}\n<{run.Link}>");
-                            await msg.AddReactionAsync(new LocalCustomEmoji(774026811797405707, "claim_run"));
-
-                            confGuild.RunMessages[run.Id] = new ConfigRun
-                            {
-                                MsgId = msg.Id,
-                                RunId = run.Id
-                            };
-                        }
-
-                        // Delete old messages that weren't handled in the above loop
-                        // Only runs that aren't in queue anymore should make it here
-                        foreach ((string runId, ConfigRun confRun) in oldMessages)
-                        {
-                            if (await channel.GetMessageAsync(confRun.MsgId) is not RestMessage msg
-                                || msg.Author.Id != CurrentUser.Id)
-                            {
-                                continue;
-                            }
-
-                            await msg.DeleteAsync();
-                            confGuild.RunMessages.Remove(runId, out _);
-                        }
-                    }
-                }
-            }
-
-            await Config.Save(Program.CONFIG_FILE);
         }
 
         private IEnumerable<ConfigRun> GetConfigRuns()
