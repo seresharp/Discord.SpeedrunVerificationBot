@@ -11,7 +11,14 @@ namespace VerificationBot
         public const string CONFIG_FILE = "config.json";
 
         public static async Task Main()
-            => await new ServiceCollection()
+        {
+            // Disqord.WebSocket.WebSocketClient.ConnectAsync normally relies on ClientWebSocket.KeepAliveInterval
+            // This property does not work, the Timer that keeps the socket alive runs forever
+            // This error causes the bot to sometimes stall indefinitely on attempted reconnects
+            // Enabling this switches to a separate block of code that instead relies on Task.Delay to timeout
+            Library.Debug.TimedWebSocketConnect = true;
+
+            await new ServiceCollection()
                 .AddSingleton(Config.Load(CONFIG_FILE).Result)
                 .AddSingleton(LoggerFactory.Create(log => log.AddConsole().AddDebug()))
                 .AddSingleton(provider =>
@@ -41,5 +48,6 @@ namespace VerificationBot
                 .BuildServiceProvider()
                 .GetService<VerificationBot>()
                 .RunAsync();
+        }
     }
 }
