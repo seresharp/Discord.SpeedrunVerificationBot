@@ -33,15 +33,16 @@ namespace VerificationBot.Attributes
             }
 
             // Check default perms
-            Permission userPerms = Discord.Permissions.CalculatePermissions(context.Guild, context.Channel, context.CurrentMember,
-                await FetchUserRolesAsync(context.Guild, context.CurrentMember));
+            List<IRole> roles = await FetchUserRolesAsync(context.Guild, context.Author);
+            Permission userPerms = Discord.Permissions.CalculatePermissions(context.Guild, context.Channel, context.Author, roles)
+                | (Permission)Discord.Permissions.CalculatePermissions(context.Guild, context.Author, roles);
 
             return (userPerms & DefaultPerms) != DefaultPerms
                 ? CheckResult.Failed("User is missing required permissions")
                 : CheckResult.Successful;
         }
 
-        private async Task<List<IRole>> FetchUserRolesAsync(CachedGuild guild, CachedMember member)
+        private async Task<List<IRole>> FetchUserRolesAsync(CachedGuild guild, IMember member)
         {
             List<IRole> roles = new();
             foreach (IRole role in await guild.FetchRolesAsync())

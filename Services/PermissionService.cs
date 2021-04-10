@@ -15,14 +15,14 @@ namespace VerificationBot.Services
             ConfigGuild guild = context.Bot.Config.GetOrAddGuild(context.Guild.Id);
 
             // Check user perms
-            ConcurrentSet<string> perms = guild.GetOrAddUserPerms(context.CurrentMember.Id);
+            ConcurrentSet<string> perms = guild.GetOrAddUserPerms(context.Author.Id);
             if (perms.Contains(context.Command.Module.Name) || perms.Contains(context.Command.Name))
             {
                 return true;
             }
 
             // Check role perms
-            foreach (ulong roleId in context.CurrentMember.RoleIds)
+            foreach (ulong roleId in context.Author.RoleIds)
             {
                 perms = guild.GetOrAddRolePerms(roleId);
                 if (perms.Contains(context.Command.Module.Name) || perms.Contains(context.Command.Name))
