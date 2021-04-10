@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Disqord;
 using Disqord.Rest;
 
 namespace VerificationBot.Services
@@ -14,14 +15,14 @@ namespace VerificationBot.Services
             ConfigGuild guild = context.Bot.Config.GetOrAddGuild(context.Guild.Id);
 
             // Check user perms
-            ConcurrentSet<string> perms = guild.GetOrAddUserPerms(context.Member.Id);
+            ConcurrentSet<string> perms = guild.GetOrAddUserPerms(context.CurrentMember.Id);
             if (perms.Contains(context.Command.Module.Name) || perms.Contains(context.Command.Name))
             {
                 return true;
             }
 
             // Check role perms
-            foreach (ulong roleId in context.Member.Roles.Keys)
+            foreach (ulong roleId in context.CurrentMember.RoleIds)
             {
                 perms = guild.GetOrAddRolePerms(roleId);
                 if (perms.Contains(context.Command.Module.Name) || perms.Contains(context.Command.Name))
@@ -40,7 +41,7 @@ namespace VerificationBot.Services
                 return (false, $"Permission '{permInput}' is not valid");
             }
 
-            if (await context.Guild.GetMemberAsync(userId) is not RestMember user)
+            if (await context.Guild.FetchMemberAsync(userId) is not IMember user)
             {
                 return (false, "User not found");
             }
@@ -80,9 +81,9 @@ namespace VerificationBot.Services
                 return (false, $"Permission '{permInput}' is not valid");
             }
 
-            if ((await context.Guild.GetRolesAsync())
+            if ((await context.Guild.FetchRolesAsync())
                 .FirstOrDefault(role => role.Id == roleId)
-                is not RestRole role)
+                is not IRole role)
             {
                 return (false, "Role not found");
             }

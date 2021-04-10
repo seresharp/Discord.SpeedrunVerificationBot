@@ -22,7 +22,7 @@ namespace VerificationBot.BackgroundTasks
             {
                 foreach ((ulong channelId, ConcurrentSet<string> gameIds) in confGuild.TrackedGames)
                 {
-                    if (await bot.GetChannelAsync(channelId) is not RestTextChannel channel)
+                    if (await bot.FetchChannelAsync(channelId) is not ITextChannel channel)
                     {
                         continue;
                     }
@@ -41,7 +41,7 @@ namespace VerificationBot.BackgroundTasks
                             // Check for already existing message
                             if (oldMessages.TryGetValue(run.Id, out ConfigRun confRun))
                             {
-                                RestMessage existingMsg = await channel.GetMessageAsync(confRun.MsgId);
+                                IMessage existingMsg = await channel.FetchMessageAsync(confRun.MsgId);
                                 if (existingMsg?.Author?.Id == bot.CurrentUser.Id)
                                 {
                                     oldMessages.Remove(run.Id);
@@ -62,8 +62,13 @@ namespace VerificationBot.BackgroundTasks
                                 time = time[1..];
                             }
 
-                            RestMessage msg = await channel.SendMessageAsync(
-                                $"{game.Name}: {run.GetFullCategory()} in {time} by {string.Join(", ", run.Players)}\n<{run.Link}>");
+                            IMessage msg = await channel.SendMessageAsync
+                            (
+                                new LocalMessageBuilder()
+                                .WithContent($"{game.Name}: {run.GetFullCategory()} in {time} by {string.Join(", ", run.Players)}\n<{run.Link}>")
+                                .Build()
+                            );
+
                             await msg.AddReactionAsync(new LocalCustomEmoji(774026811797405707, "claim_run"));
 
                             confGuild.RunMessages[run.Id] = new ConfigRun
@@ -77,7 +82,7 @@ namespace VerificationBot.BackgroundTasks
                         // Only runs that aren't in queue anymore should make it here
                         foreach ((string runId, ConfigRun confRun) in oldMessages)
                         {
-                            if (await channel.GetMessageAsync(confRun.MsgId) is not RestMessage msg
+                            if (await channel.FetchMessageAsync(confRun.MsgId) is not IMessage msg
                                 || msg.Author.Id != bot.CurrentUser.Id)
                             {
                                 continue;

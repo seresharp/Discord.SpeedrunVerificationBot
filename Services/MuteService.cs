@@ -4,15 +4,16 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Disqord;
+using Disqord.Gateway;
 using Disqord.Rest;
 
 namespace VerificationBot.Services
 {
     public static class MuteService
     {
-        public static async Task<(bool success, string failureReason)> MuteUserAsync(CachedGuild guild, RestMember user, string time, Config config)
+        public static async Task<(bool success, string failureReason)> MuteUserAsync(CachedGuild guild, IMember user, string time, Config config)
         {
-            RestRole mutedRole = await GetMutedRoleAsync(guild);
+            IRole mutedRole = await GetMutedRoleAsync(guild);
             if (mutedRole == null)
             {
                 return (false, "Failed getting/creating muted role");
@@ -57,9 +58,9 @@ namespace VerificationBot.Services
             return (true, string.Empty);
         }
 
-        public static async Task<(bool success, string failureReason)> UnmuteUserAsync(CachedGuild guild, RestMember user, Config config)
+        public static async Task<(bool success, string failureReason)> UnmuteUserAsync(CachedGuild guild, IMember user, Config config)
         {
-            RestRole mutedRole = await GetMutedRoleAsync(guild);
+            IRole mutedRole = await GetMutedRoleAsync(guild);
             if (mutedRole == null)
             {
                 return (false, "Failed getting/creating muted role");
@@ -85,12 +86,12 @@ namespace VerificationBot.Services
             return (true, string.Empty);
         }
 
-        public static async Task<RestRole> GetMutedRoleAsync(CachedGuild guild)
+        public static async Task<IRole> GetMutedRoleAsync(CachedGuild guild)
         {
             const string MUTED_NAME = "Muted";
 
             // Get or create role
-            RestRole muted = (await guild.GetRolesAsync()).FirstOrDefault(r => r.Name == MUTED_NAME);
+            IRole muted = (await guild.FetchRolesAsync()).FirstOrDefault(r => r.Name == MUTED_NAME);
             if (muted == null)
             {
                 muted = await guild.CreateRoleAsync(prop =>
@@ -121,9 +122,9 @@ namespace VerificationBot.Services
 
             try
             {
-                await Task.WhenAll((await guild.GetChannelsAsync()).Select(channel => channel.AddOrModifyOverwriteAsync(denyPerms)));
+                await Task.WhenAll((await guild.FetchChannelsAsync()).Select(channel => channel.SetOverwriteAsync(denyPerms)));
             }
-            catch (DiscordHttpException)
+            catch (RestApiException)
             {
                 // Do nothing, ignoring channels the bot lacks permissions for
             }
@@ -150,7 +151,7 @@ namespace VerificationBot.Services
                         continue;
                     }
 
-                    RestMember user = await guild.GetMemberAsync(mute.UserId);
+                    IMember user = await guild.FetchMemberAsync(mute.UserId);
                     if (user != null)
                     {
                         await UnmuteUserAsync(guild, user, config);

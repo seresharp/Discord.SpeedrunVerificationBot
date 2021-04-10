@@ -6,40 +6,45 @@ using System.Threading;
 using System.Threading.Tasks;
 using Disqord;
 using Disqord.Bot;
-using Disqord.Bot.Prefixes;
-using Disqord.Events;
+using Disqord.Gateway;
 using Disqord.Rest;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Qmmands;
 using VerificationBot.BackgroundTasks;
+using VerificationBot.Services;
 
 using Timer = System.Timers.Timer;
 
 namespace VerificationBot
 {
-    public class VerificationBot : DiscordBot
+    public class VerificationBot : DiscordBot, IDisposable
     {
         public Config Config { get; }
-        public new ILogger Logger { get; }
         public IReadOnlyDictionary<string, IReadOnlyList<string>> AllCommandNames { get; }
 
         private readonly Timer UpdateTimer;
         private readonly BackgroundTask[] BackgroundTasks;
 
-        public VerificationBot(TokenType tokenType, Config config,
-            ILogger logger, DiscordBotConfiguration configuration)
-            : base(tokenType, config.Token, new VPrefixProvider(config), configuration)
+        public VerificationBot
+        (
+            IOptions<DiscordBotConfiguration> options,
+            ILogger<DiscordBot> logger,
+            IPrefixProvider prefixes,
+            ICommandQueue queue,
+            CommandService commands,
+            IServiceProvider services,
+            DiscordClient client
+        ) : base(options, logger, prefixes, queue, commands, services, client)
         {
-            Config = config;
-            Logger = logger;
-            AddModules(GetType().Assembly);
+            Config = services.GetService(typeof(Config)) as Config;
 
             // Create command name list
             Dictionary<string, IReadOnlyList<string>> modules = new();
-            foreach (Module m in GetAllModules())
+            foreach (Module m in commands.GetAllModules())
             {
-                List<string> commands = new(m.Commands.Select(c => c.Name));
-                modules[m.Name] = commands.AsReadOnly();
+                List<string> commandNames = new(m.Commands.Select(c => c.Name));
+                modules[m.Name] = commandNames.AsReadOnly();
             }
 
             AllCommandNames = modules;
@@ -47,7 +52,7 @@ namespace VerificationBot
             // Setup background tasks
             BackgroundTasks = new BackgroundTask[]
             {
-                new GenericTask(TimeSpan.FromSeconds(5), static bot => Services.MuteService.CheckUnmutes(bot.Config, bot.Guilds)),
+                new GenericTask(TimeSpan.FromSeconds(5), static bot => MuteService.CheckUnmutes(bot.Config, bot.GetGuilds())),
                 new CheckRunsTask(TimeSpan.FromMinutes(1))
             };
 
@@ -61,7 +66,7 @@ namespace VerificationBot
             UpdateTimer.Elapsed += UpdateBackgroundTasks;
 
             // Hook bot events
-            CommandExecutionFailed += OnCommandFailed;
+            commands.CommandExecutionFailed += OnCommandFailed;
             ReactionAdded += OnReactionAdded;
         }
 
@@ -73,19 +78,27 @@ namespace VerificationBot
             }
         }
 
-        private async Task OnReactionAdded(ReactionAddedEventArgs e)
+        private async Task OnReactionAdded(object sender, ReactionAddedEventArgs e)
         {
-            IUser user = await e.User.GetAsync();
-            IMessage msg = await e.Message.GetAsync();
+            IMember member = e?.Member;
+            IMessage message = e?.Message ?? await this.FetchMessageAsync(e.ChannelId, e.MessageId);
 
-            if (user.Id == CurrentUser.Id || msg.Author.Id != CurrentUser.Id || e.Emoji is not CustomEmoji emoji)
+            if (member == null || message == null
+                || await message.FetchChannelAsync() is not IMessageChannel channel
+                || member.Id == CurrentUser.Id
+                || message.Author.Id != CurrentUser.Id)
+            {
+                return;
+            }
+
+            if (e.Emoji is not CustomEmoji emoji)
             {
                 return;
             }
 
             foreach (ConfigRun run in GetConfigRuns())
             {
-                if (run.MsgId != e.Message.Id)
+                if (run.MsgId != message.Id)
                 {
                     continue;
                 }
@@ -99,11 +112,11 @@ namespace VerificationBot
                 {
                     // Claim
                     case 774026811797405707:
-                        run.ClaimedBy = user.Id;
-                        await (await GetMessageAsync(msg.ChannelId, msg.Id) as RestUserMessage)
-                            .ModifyAsync(m => m.Content = $"{msg.Content}\n**Claimed by {user.Name}**");
+                        run.ClaimedBy = member.Id;
+                        await (await this.FetchMessageAsync(message.ChannelId, message.Id) as IUserMessage)
+                            .ModifyAsync(m => m.Content = $"{message.Content}\n**Claimed by {member.Name}**");
 
-                        await msg.ClearReactionsAsync(e.Emoji);
+                        await message.ClearReactionsAsync(emoji);
                         break;
                 }
 
@@ -127,15 +140,17 @@ namespace VerificationBot
             string msg = $"Failed executing command '{e.Result.Command.Name}'";
 
             Logger.LogWarning(msg + "\n" + e.Result.Exception.ToString());
-            await ((DiscordCommandContext)e.Context).Channel.SendMessageAsync
+            await ((VCommandContext)e.Context).Message.GetChannel().SendMessageAsync
             (
-                new LocalAttachment(Encoding.ASCII.GetBytes(e.Result.Exception.ToString()), "error.txt"),
-                msg
+                new LocalMessageBuilder()
+                    .AddAttachment(new LocalAttachment(Encoding.ASCII.GetBytes(e.Result.Exception.ToString()), "error.txt"))
+                    .WithContent(msg)
+                    .Build()
             );
         }
 
-        protected override ValueTask<DiscordCommandContext> GetCommandContextAsync(CachedUserMessage message, IPrefix prefix)
-            => new(new VCommandContext(this, prefix, message));
+        protected override DiscordCommandContext CreateCommandContext(IPrefix prefix, IGatewayUserMessage message, CachedTextChannel channel)
+            => new VCommandContext(this, prefix, message, channel, Services);
 
         public override async Task RunAsync(CancellationToken cancellationToken = default)
         {
@@ -144,12 +159,15 @@ namespace VerificationBot
             await base.RunAsync(cancellationToken);
         }
 
-        public override ValueTask DisposeAsync()
+        public new void Dispose()
         {
-            UpdateTimer.Elapsed -= UpdateBackgroundTasks;
-            UpdateTimer.Dispose();
+            if (UpdateTimer != null)
+            {
+                UpdateTimer.Elapsed -= UpdateBackgroundTasks;
+                UpdateTimer.Dispose();
+            }
 
-            return base.DisposeAsync();
+            base.Dispose();
         }
     }
 }

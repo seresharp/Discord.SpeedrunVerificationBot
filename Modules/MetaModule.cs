@@ -21,7 +21,7 @@ namespace VerificationBot.Modules
         public async Task HelpAsync(string moduleName = null)
         {
             moduleName = moduleName?.ToLower() ?? "";
-            IReadOnlyList<Module> modules = Context.Bot.GetAllModules();
+            IReadOnlyList<Module> modules = Context.Bot.Commands.GetAllModules();
 
             LocalEmbedBuilder embed = new();
 
@@ -65,19 +65,35 @@ namespace VerificationBot.Modules
                 }
             }
 
-            await ReplyAsync("", false, embed.Build());
+            await Response(embed);
         }
 
         [Command("uptime")]
         [Description("Responds with the current bot uptime")]
         public async Task PrintUptimeAsync()
         {
-            await ReplyAsync((DateTime.Now - Process.GetCurrentProcess().StartTime).ToString("d'd 'hh'h 'mm'm 'ss's'"));
+            await Response((DateTime.Now - Process.GetCurrentProcess().StartTime).ToString("d'd 'hh'h 'mm'm 'ss's'"));
         }
 
         [Command("ping")]
         [Description("Responds pong")]
-        public Task PingAsync()
-            => ReplyAsync("pong");
+        public async Task PingAsync()
+            => await Response("pong");
+
+        [Command("reacttest")]
+        public async Task ReactTestAsync()
+        {
+            Type t = typeof(DiscordClientBase);
+            var f = t.GetField(nameof(DiscordClientBase.ReactionAdded), System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+            Delegate d = f.GetValue(Context.Bot) as Delegate;
+            Delegate[] subscribers = d?.GetInvocationList();
+            if (subscribers == null || subscribers.Length == 0)
+            {
+                await Response("No subscribers");
+                return;
+            }
+
+            await Response(string.Join(", ", subscribers.Select(s => s.Target.GetType().Name + "." + s.Method.Name)));
+        }
     }
 }

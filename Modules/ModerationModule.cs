@@ -18,10 +18,10 @@ namespace VerificationBot.Modules
         [Description("Sends the given user a warning in dms")]
         public async Task WarnUserAsync(ulong userId, params string[] reason)
         {
-            RestMember user = await Context.Guild.GetMemberAsync(userId);
+            IMember user = await Context.Guild.FetchMemberAsync(userId);
             if (user == null)
             {
-                await ReplyAsync("User not found");
+                await Response("User not found");
                 return;
             }
 
@@ -30,12 +30,18 @@ namespace VerificationBot.Modules
 
             if (baseReason.Length + reasonStr.Length > 2000)
             {
-                await ReplyAsync($"Failed to send warning, reason is too long ({reasonStr.Length} / {2000 - baseReason.Length})");
+                await Response($"Failed to send warning, reason is too long ({reasonStr.Length} / {2000 - baseReason.Length})");
                 return;
             }
 
-            await user.SendMessageAsync(baseReason + reasonStr);
-            await ReplyAsync($"{user.Name}#{user.Discriminator} has been warned");
+            await user.SendMessageAsync
+            (
+                new LocalMessageBuilder()
+                .WithContent(baseReason + reasonStr)
+                .Build()
+            );
+
+            await Response($"{user.Name}#{user.Discriminator} has been warned");
         }
 
         [Command("mute")]
@@ -44,10 +50,10 @@ namespace VerificationBot.Modules
         [RequireBotGuildPermissions(Permission.ManageChannels)]
         public async Task MuteUserAsync(ulong userId, string time, params string[] reason)
         {
-            RestMember user = await Context.Guild.GetMemberAsync(userId);
+            IMember user = await Context.Guild.FetchMemberAsync(userId);
             if (user == null)
             {
-                await ReplyAsync("User not found");
+                await Response("User not found");
                 return;
             }
 
@@ -59,27 +65,32 @@ namespace VerificationBot.Modules
 
             if (baseReason.Length + reasonStr.Length > 2000)
             {
-                await ReplyAsync($"Failed to mute user, reason is too long ({reasonStr.Length} / {2000 - baseReason.Length})");
+                await Response($"Failed to mute user, reason is too long ({reasonStr.Length} / {2000 - baseReason.Length})");
                 return;
             }
 
             (bool success, string failureReason) = await MuteService.MuteUserAsync(Context.Guild, user, time, Context.Bot.Config);
             if (!success)
             {
-                await ReplyAsync(failureReason);
+                await Response(failureReason);
                 return;
             }
 
             try
             {
-                await user.SendMessageAsync(baseReason + reasonStr);
+                await user.SendMessageAsync
+                (
+                    new LocalMessageBuilder()
+                    .WithContent(baseReason + reasonStr)
+                    .Build()
+                );
             }
             catch
             {
-                await ReplyAsync("Failed to send mute reason to user, they likely have the bot blocked or dms from this server disabled");
+                await Response("Failed to send mute reason to user, they likely have the bot blocked or dms from this server disabled");
             }
 
-            await ReplyAsync($"{user.Name}#{user.Discriminator} has been muted for {time}");
+            await Response($"{user.Name}#{user.Discriminator} has been muted for {time}");
         }
 
         [Command("unmute")]
@@ -88,21 +99,21 @@ namespace VerificationBot.Modules
         [RequireBotGuildPermissions(Permission.ManageChannels)]
         public async Task UnmuteUserAsync(ulong userId)
         {
-            RestMember user = await Context.Guild.GetMemberAsync(userId);
+            IMember user = await Context.Guild.FetchMemberAsync(userId);
             if (user == null)
             {
-                await ReplyAsync("User not found");
+                await Response("User not found");
                 return;
             }
 
             (bool success, string failureReason) = await MuteService.UnmuteUserAsync(Context.Guild, user, Context.Bot.Config);
             if (!success)
             {
-                await ReplyAsync(failureReason);
+                await Response(failureReason);
                 return;
             }
 
-            await ReplyAsync($"{user.Name}#{user.Discriminator} has been unmuted");
+            await Response($"{user.Name}#{user.Discriminator} has been unmuted");
         }
 
         [Command("listmutes")]
@@ -113,7 +124,7 @@ namespace VerificationBot.Modules
 
             foreach ((_, Mute mute) in Context.Bot.Config.GetOrAddGuild(Context.Guild.Id).CurrentMutes)
             {
-                if (await Context.Guild.GetMemberAsync(mute.UserId) is not RestMember user)
+                if (await Context.Guild.FetchMemberAsync(mute.UserId) is not IMember user)
                 {
                     continue;
                 }
@@ -121,7 +132,7 @@ namespace VerificationBot.Modules
                 embed.AddField($"{user.Name}#{user.Discriminator}", $"Time remaining: {MuteService.GetTimeString(mute.UnmuteTime - DateTime.Now)}");
             }
 
-            await ReplyAsync("", false, embed.Build());
+            await Response(embed);
         }
     }
 }

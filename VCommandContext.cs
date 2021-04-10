@@ -1,16 +1,15 @@
 ﻿using System;
-using Disqord;
 using Disqord.Bot;
-using Disqord.Bot.Prefixes;
+using Disqord.Gateway;
 
 namespace VerificationBot
 {
-    public class VCommandContext : DiscordCommandContext
+    public class VCommandContext : DiscordGuildCommandContext
     {
         public new VerificationBot Bot { get; }
 
-        public VCommandContext(VerificationBot bot, IPrefix prefix, CachedUserMessage message, IServiceProvider provider = null)
-            : base(bot, prefix, message, provider)
+        public VCommandContext(VerificationBot bot, IPrefix prefix, IGatewayUserMessage message, CachedTextChannel channel, IServiceProvider services)
+            : base(bot, prefix, message, channel, services)
             => Bot = bot;
     }
 }

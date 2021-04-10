@@ -1,27 +1,29 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Disqord;
 using Disqord.Bot;
+using Disqord.Gateway;
+using Disqord.Rest;
 using Qmmands;
 using VerificationBot.Services;
 
 namespace VerificationBot.Attributes
 {
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method)]
-    public class RequireCustomPermissionsAttribute : GuildOnlyAttribute
+    public class RequireCustomPermissionsAttribute : DiscordGuildCheckAttribute
     {
         public readonly Permission DefaultPerms;
 
         public RequireCustomPermissionsAttribute(Permission defaultPerms)
             => DefaultPerms = defaultPerms;
 
-        public override async ValueTask<CheckResult> CheckAsync(CommandContext _)
+        public override async ValueTask<CheckResult> CheckAsync(DiscordGuildCommandContext _)
         {
-            // Check base (guild only)
-            CheckResult baseResult = await base.CheckAsync(_);
-            if (!baseResult.IsSuccessful || _ is not VCommandContext context)
+            if (_ is not VCommandContext context)
             {
-                return baseResult;
+                return CheckResult.Failed("Could not check permissions");
             }
 
             // Check custom perms
@@ -31,10 +33,26 @@ namespace VerificationBot.Attributes
             }
 
             // Check default perms
-            Permission userPerms = context.Member.GetPermissionsFor((IGuildChannel)context.Channel).Permissions | context.Member.Permissions;
+            Permission userPerms = Discord.Permissions.CalculatePermissions(context.Guild, context.Channel, context.CurrentMember,
+                await FetchUserRolesAsync(context.Guild, context.CurrentMember));
+
             return (userPerms & DefaultPerms) != DefaultPerms
-                ? CheckResult.Unsuccessful("User is missing required permissions")
+                ? CheckResult.Failed("User is missing required permissions")
                 : CheckResult.Successful;
+        }
+
+        private async Task<List<IRole>> FetchUserRolesAsync(CachedGuild guild, CachedMember member)
+        {
+            List<IRole> roles = new();
+            foreach (IRole role in await guild.FetchRolesAsync())
+            {
+                if (member.RoleIds.Contains(role.Id))
+                {
+                    roles.Add(role);
+                }
+            }
+
+            return roles;
         }
     }
 }

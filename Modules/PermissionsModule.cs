@@ -65,7 +65,7 @@ namespace VerificationBot.Modules
                 embed.AddField(perm, string.Join(", ", mentions));
             }
 
-            await ReplyAsync("", false, embed.Build());
+            await Response(embed);
         }
 
         private async Task SetPermissionAsync(string roleOrUser, ulong id, string nameOfModuleOrCommand, bool enable)
@@ -73,16 +73,16 @@ namespace VerificationBot.Modules
             if (roleOrUser == "role")
             {
                 (_, string message) = await PermissionService.SetRolePermission(Context, id, nameOfModuleOrCommand, enable);
-                await ReplyAsync(message);
+                await Response(message);
             }
             else if (roleOrUser == "user")
             {
                 (_, string message) = await PermissionService.SetUserPermission(Context, id, nameOfModuleOrCommand, enable);
-                await ReplyAsync(message);
+                await Response(message);
             }
             else
             {
-                await ReplyAsync($"Invalid permission type '{roleOrUser}', please specify 'role' or 'user'");
+                await Response($"Invalid permission type '{roleOrUser}', please specify 'role' or 'user'");
             }
         }
     }

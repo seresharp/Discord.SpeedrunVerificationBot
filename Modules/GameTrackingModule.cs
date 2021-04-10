@@ -1,6 +1,5 @@
 ﻿using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 using Disqord;
 using Disqord.Bot;
@@ -23,7 +22,7 @@ namespace VerificationBot.Modules
             Game game = await Game.Find(gameName);
             if (game == null)
             {
-                await ReplyAsync("Couldn't locate game, please supply a valid speedrun.com url or game id");
+                await Response("Couldn't locate game, please supply a valid speedrun.com url or game id");
                 return;
             }
 
@@ -33,14 +32,14 @@ namespace VerificationBot.Modules
 
             if (trackedGames.Contains(game.Id))
             {
-                await ReplyAsync($"Game '{game.Name}' is already being tracked in this channel");
+                await Response($"Game '{game.Name}' is already being tracked in this channel");
                 return;
             }
 
             trackedGames.Add(game.Id);
             await Context.Bot.Config.Save(Program.CONFIG_FILE);
 
-            await ReplyAsync($"Now tracking game '{game.Name}'");
+            await Response($"Now tracking game '{game.Name}'");
         }
 
         [Command("removegame", "deletegame", "remgame", "delgame")]
@@ -50,7 +49,7 @@ namespace VerificationBot.Modules
             Game game = await Game.Find(gameName);
             if (game == null)
             {
-                await ReplyAsync("Couldn't locate game, please supply a valid speedrun.com url or game id");
+                await Response("Couldn't locate game, please supply a valid speedrun.com url or game id");
                 return;
             }
 
@@ -60,13 +59,13 @@ namespace VerificationBot.Modules
 
             if (!trackedGames.Contains(game.Id))
             {
-                await ReplyAsync($"Game '{game.Name}' is not being tracked in this channel");
+                await Response($"Game '{game.Name}' is not being tracked in this channel");
                 return;
             }
 
             foreach ((string runId, ConfigRun run) in confGuild.RunMessages)
             {
-                RestMessage msg = await Context.Channel.GetMessageAsync(run.MsgId);
+                IMessage msg = await Context.Channel.FetchMessageAsync(run.MsgId);
                 if (msg?.Author?.Id != Context.Bot.CurrentUser.Id)
                 {
                     continue;
@@ -79,7 +78,7 @@ namespace VerificationBot.Modules
             trackedGames.Remove(game.Id);
             await Context.Bot.Config.Save(Program.CONFIG_FILE);
 
-            await ReplyAsync($"No longer tracking game '{game.Name}' in this channel");
+            await Response($"No longer tracking game '{game.Name}' in this channel");
         }
     }
 }

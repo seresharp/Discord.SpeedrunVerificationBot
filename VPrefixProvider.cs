@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Threading.Tasks;
-using Disqord;
-using Disqord.Bot.Prefixes;
+using Disqord.Bot;
+using Disqord.Gateway;
 
 namespace VerificationBot
 {
@@ -12,11 +12,10 @@ namespace VerificationBot
         public VPrefixProvider(Config config)
             => Config = config;
 
-        public ValueTask<IEnumerable<IPrefix>> GetPrefixesAsync(CachedUserMessage message)
+        public ValueTask<IEnumerable<IPrefix>> GetPrefixesAsync(IGatewayUserMessage message)
             => new ValueTask<IEnumerable<IPrefix>>(new IPrefix[]
                 {
-                    MentionPrefix.Instance,
-                    new StringPrefix(Config.GetOrAddGuild(message.Guild.Id).Prefix)
+                    new StringPrefix(Config.GetOrAddGuild(message.GuildId?.RawValue ?? default).Prefix)
                 });
     }
 }
