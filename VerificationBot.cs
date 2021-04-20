@@ -21,7 +21,7 @@ namespace VerificationBot
     public class VerificationBot : DiscordBot, IDisposable
     {
         public Config Config { get; }
-        public IReadOnlyDictionary<string, IReadOnlyList<string>> AllCommandNames { get; }
+        public IReadOnlyDictionary<string, IReadOnlyList<string>> AllCommandNames { get; private set; }
 
         private readonly Timer UpdateTimer;
         private readonly BackgroundTask[] BackgroundTasks;
@@ -38,16 +38,6 @@ namespace VerificationBot
         ) : base(options, logger, prefixes, queue, commands, services, client)
         {
             Config = services.GetService(typeof(Config)) as Config;
-
-            // Create command name list
-            Dictionary<string, IReadOnlyList<string>> modules = new();
-            foreach (Module m in commands.GetAllModules())
-            {
-                List<string> commandNames = new(m.Commands.Select(c => c.Name));
-                modules[m.Name] = commandNames.AsReadOnly();
-            }
-
-            AllCommandNames = modules;
 
             // Setup background tasks
             BackgroundTasks = new BackgroundTask[]
@@ -115,6 +105,16 @@ namespace VerificationBot
         public override async Task RunAsync(CancellationToken cancellationToken = default)
         {
             UpdateTimer.Start();
+
+            // Create command name list
+            Dictionary<string, IReadOnlyList<string>> modules = new();
+            foreach (Module m in Commands.GetAllModules())
+            {
+                List<string> commandNames = new(m.Commands.Select(c => c.Name));
+                modules[m.Name] = commandNames.AsReadOnly();
+            }
+
+            AllCommandNames = modules;
 
             await base.RunAsync(cancellationToken);
         }
