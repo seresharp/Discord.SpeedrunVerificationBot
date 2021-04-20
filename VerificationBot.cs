@@ -68,6 +68,7 @@ namespace VerificationBot
             // Hook bot events
             commands.CommandExecutionFailed += OnCommandFailed;
             ReactionAdded += OnReactionAdded;
+            ReactionRemoved += OnReactionRemoved;
         }
 
         private void UpdateBackgroundTasks(object sender, System.Timers.ElapsedEventArgs e)
@@ -78,51 +79,11 @@ namespace VerificationBot
             }
         }
 
-        private async Task OnReactionAdded(object sender, ReactionAddedEventArgs e)
-        {
-            IMember member = e?.Member;
-            IMessage message = e?.Message ?? await this.FetchMessageAsync(e.ChannelId, e.MessageId);
+        private Task OnReactionAdded(object sender, ReactionAddedEventArgs e)
+            => ReactService.HandleReactAddedAsync(this, e);
 
-            if (member == null || message == null
-                || await message.FetchChannelAsync() is not IMessageChannel channel
-                || member.Id == CurrentUser.Id
-                || message.Author.Id != CurrentUser.Id)
-            {
-                return;
-            }
-
-            if (e.Emoji is not CustomEmoji emoji)
-            {
-                return;
-            }
-
-            foreach (ConfigRun run in GetConfigRuns())
-            {
-                if (run.MsgId != message.Id)
-                {
-                    continue;
-                }
-
-                if (run.ClaimedBy != default)
-                {
-                    break;
-                }
-
-                switch (emoji.Id)
-                {
-                    // Claim
-                    case 774026811797405707:
-                        run.ClaimedBy = member.Id;
-                        await (await this.FetchMessageAsync(message.ChannelId, message.Id) as IUserMessage)
-                            .ModifyAsync(m => m.Content = $"{message.Content}\n**Claimed by {member.Name}**");
-
-                        await message.ClearReactionsAsync(emoji);
-                        break;
-                }
-
-                break;
-            }
-        }
+        private Task OnReactionRemoved(object sender, ReactionRemovedEventArgs e)
+            => ReactService.HandleReactRemovedAsync(this, e);
 
         private IEnumerable<ConfigRun> GetConfigRuns()
         {

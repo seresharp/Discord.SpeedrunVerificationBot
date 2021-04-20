@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Disqord;
 using Disqord.Bot;
@@ -133,6 +134,53 @@ namespace VerificationBot.Modules
             }
 
             await Response(embed);
+        }
+
+        [Command("relay")]
+        [Description("Relays a message to the given channel")]
+        public async Task RelayMessageAsync(ulong channelId, params string[] message)
+        {
+            if (!Context.Guild.Channels.TryGetValue(channelId, out IGuildChannel channel))
+            {
+                channel = (await Context.Guild.FetchChannelsAsync()).FirstOrDefault(c => c.Id == channelId);
+            }
+
+            if (channel is not ITextChannel textChannel)
+            {
+                await Response("Could not find given channel, or it's a voice channel");
+                return;
+            }
+
+            await textChannel.SendMessageAsync
+            (
+                new LocalMessageBuilder()
+                .WithContent(string.Join(' ', message))
+                .Build()
+            );
+
+            await Response("Message relayed");
+        }
+
+        [Command("react")]
+        [Description("Adds the given react to the given message")]
+        public async Task AddReactAsync(ulong channelId, ulong messageId, string emoji)
+        {
+            IMessage msg = await Context.Bot.FetchMessageAsync(channelId, messageId);
+            if (msg == null)
+            {
+                await Response("Message not found");
+                return;
+            }
+
+            try
+            {
+                await msg.AddReactionAsync(ReactService.ParseEmojiString(emoji));
+                await Response("React added");
+            }
+            catch
+            {
+                await Response("Failed adding react to message");
+            }
         }
     }
 }
