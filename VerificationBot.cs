@@ -67,8 +67,12 @@ namespace VerificationBot
 
             // Hook bot events
             commands.CommandExecutionFailed += OnCommandFailed;
+
             ReactionAdded += OnReactionAdded;
             ReactionRemoved += OnReactionRemoved;
+
+            MessageUpdated += OnMessageEdited;
+            MessageDeleted += OnMessageDeleted;
         }
 
         private void UpdateBackgroundTasks(object sender, System.Timers.ElapsedEventArgs e)
@@ -85,16 +89,11 @@ namespace VerificationBot
         private Task OnReactionRemoved(object sender, ReactionRemovedEventArgs e)
             => ReactService.HandleReactRemovedAsync(this, e);
 
-        private IEnumerable<ConfigRun> GetConfigRuns()
-        {
-            foreach ((_, ConfigGuild guild) in Config.Guilds)
-            {
-                foreach ((_, ConfigRun run) in guild.RunMessages)
-                {
-                    yield return run;
-                }
-            }
-        }
+        private Task OnMessageEdited(object sender, MessageUpdatedEventArgs e)
+            => ChangelogService.HandleMessageEditedAsync(this, e);
+
+        private Task OnMessageDeleted(object sender, MessageDeletedEventArgs e)
+            => ChangelogService.HandleMessageDeletedAsync(this, e);
 
         private async Task OnCommandFailed(CommandExecutionFailedEventArgs e)
         {

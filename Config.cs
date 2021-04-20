@@ -94,6 +94,8 @@ namespace VerificationBot
         public ulong Id;
         public ulong GuildId;
 
+        public ConcurrentSet<ulong> ChangelogChannels = new();
+
         [JsonProperty]
         private ConcurrentDictionary<ulong, ConcurrentDictionary<string, ulong>> ReactRoles = new();
 

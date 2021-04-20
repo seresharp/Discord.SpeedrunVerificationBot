@@ -25,7 +25,23 @@ namespace System.Collections.Concurrent
 
         public void Add(T item) => TryAdd(item);
 
+        public void AddRange(IEnumerable<T> items)
+        {
+            foreach (T item in items)
+            {
+                Add(item);
+            }
+        }
+
         public bool Remove(T item) => TryRemove(item);
+
+        public void RemoveRange(IEnumerable<T> items)
+        {
+            foreach (T item in items)
+            {
+                Remove(item);
+            }
+        }
 
         public void CopyTo(T[] array, int arrayIndex) => Backing.Keys.CopyTo(array, arrayIndex);
 
