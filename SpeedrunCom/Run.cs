@@ -35,13 +35,11 @@ namespace VerificationBot.SpeedrunCom
         public TimeSpan Time
             => _time ??= TimeSpan.FromSeconds(Convert.ToDouble(Data.TryGet()["times"]?["primary_t"]?.As<JValue>()?.Value ?? 0.0));
 
-        private RunStatus _status;
+        private RunStatus? _status;
         public RunStatus Status
-            => _status == default
-                ? _status = Enum.TryParse(Data.TryGet()["status"]?["status"]?.ToString(), out RunStatus s)
-                    ? s
-                    : RunStatus.New
-                : _status;
+            => _status ??= Enum.TryParse(Data.TryGet()["status"]?["status"]?.ToString(), out RunStatus s)
+                ? s
+                : RunStatus.New;
 
         private DateTime _submitted;
         public DateTime Submitted
@@ -93,39 +91,8 @@ namespace VerificationBot.SpeedrunCom
             }
         }
 
-        private IList<string> _players;
-        public IList<string> Players
-        {
-            get
-            {
-                if (_players != null)
-                {
-                    return _players;
-                }
-
-                List<string> players = new List<string>();
-
-                JArray jPlayers = Data.TryGet()["players"]?["data"]?.As<JArray>();
-                if (jPlayers == null)
-                {
-                    return _players = players.AsReadOnly();
-                }
-
-                foreach (JObject p in jPlayers)
-                {
-                    string name = p.TryGet()["names"]?["international"]?.ToString();
-                    if (name != null)
-                    {
-                        players.Add(name);
-                    }
-                }
-
-                return _players = players.AsReadOnly();
-            }
-        }
-
-        private IList<Variable> _variables;
-        public IList<Variable> Variables
+        private IList<VariableValue> _variables;
+        public IList<VariableValue> Variables
         {
             get
             {
@@ -134,7 +101,7 @@ namespace VerificationBot.SpeedrunCom
                     return _variables;
                 }
 
-                List<Variable> vars = new List<Variable>();
+                List<VariableValue> vars = new List<VariableValue>();
 
                 JArray catVars = Data.TryGet()["category"]?["data"]?["variables"]?["data"]?.As<JArray>();
                 JObject runVars = Data.TryGet()["values"]?.As<JObject>();
@@ -158,7 +125,7 @@ namespace VerificationBot.SpeedrunCom
                             continue;
                         }
 
-                        vars.Add(new Variable(catVarName, catVarValue, subcat.Value));
+                        vars.Add(new VariableValue(catVarName, catVarValue, subcat.Value));
                         break;
                     }
                 }
@@ -171,6 +138,46 @@ namespace VerificationBot.SpeedrunCom
         {
             Game = game;
             Data = data;
+        }
+
+        private IList<ISpeedrunUser> _players;
+        public async IAsyncEnumerable<ISpeedrunUser> GetPlayersAsync()
+        {
+            if (_players != null)
+            {
+                foreach (ISpeedrunUser user in _players)
+                {
+                    yield return user;
+                }
+
+                yield break;
+            }
+
+            List<ISpeedrunUser> players = new();
+
+            JArray jPlayers = Data.TryGet()["players"]?.As<JArray>();
+            if (jPlayers == null)
+            {
+                _players = players.AsReadOnly();
+                yield break;
+            }
+
+            foreach (JObject p in jPlayers)
+            {
+                string rel = p.TryGet()["rel"]?.ToString();
+                if (rel == "guest" && p.TryGet()["name"]?.ToString() is string name)
+                {
+                    players.Add(new GuestUser(name));
+                }
+                else if (rel == "user" && p.TryGet()["id"]?.ToString() is string id
+                    && await User.FindById(id) is User user)
+                {
+                    yield return user;
+                    players.Add(user);
+                }
+            }
+
+            _players = players.AsReadOnly();
         }
 
         private User _examiner;
@@ -201,7 +208,7 @@ namespace VerificationBot.SpeedrunCom
 
             cat.Append(Category);
 
-            Variable[] vars = Variables.Where(v => v.IsSubcategory).ToArray();
+            VariableValue[] vars = Variables.Where(v => v.IsSubcategory).ToArray();
             if (vars.Length > 0)
             {
                 cat.Append(" - ");

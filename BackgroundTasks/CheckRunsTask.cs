@@ -36,7 +36,7 @@ namespace VerificationBot.BackgroundTasks
 
                         Dictionary<string, ConfigRun> oldMessages = new(confGuild.RunMessages);
 
-                        await foreach (Run run in game.GetRuns(RunStatus.New))
+                        await foreach (Run run in game.GetRunsAsync(RunStatus.New))
                         {
                             // Check for already existing message
                             if (oldMessages.TryGetValue(run.Id, out ConfigRun confRun))
@@ -62,10 +62,16 @@ namespace VerificationBot.BackgroundTasks
                                 time = time[1..];
                             }
 
+                            List<string> players = new();
+                            await foreach (ISpeedrunUser user in run.GetPlayersAsync())
+                            {
+                                players.Add(user.Name);
+                            }
+
                             IMessage msg = await channel.SendMessageAsync
                             (
                                 new LocalMessageBuilder()
-                                .WithContent($"{game.Name}: {run.GetFullCategory()} in {time} by {string.Join(", ", run.Players)}\n<{run.Link}>")
+                                .WithContent($"{game.Name}: {run.GetFullCategory()} in {time} by {string.Join(", ", players)}\n<{run.Link}>")
                                 .Build()
                             );
 

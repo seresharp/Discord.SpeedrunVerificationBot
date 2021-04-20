@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -26,32 +27,6 @@ namespace VerificationBot.SpeedrunCom
         public string Link
             => _link ??= Data.TryGet()["weblink"]?.ToString() ?? string.Empty;
 
-        private string _runsUrl;
-        private string RunsUrl
-        {
-            get
-            {
-                if (_runsUrl != null)
-                {
-                    return _runsUrl;
-                }
-
-                JArray links = Data.TryGet()["links"]?.As<JArray>();
-
-                if (links == null)
-                {
-                    return _runsUrl = string.Empty;
-                }
-
-                return _runsUrl ??= links
-                    .FirstOrDefault(tok => 
-                        tok is JObject obj
-                        && obj.TryGet()["rel"]?.ToString() == "runs"
-                        && obj.ContainsKey("uri")
-                    )?["uri"]?.ToString() ?? string.Empty;
-            }
-        }
-
         public Game(JObject data) => Data = data;
 
         public static async Task<Game> Find(string name)
@@ -72,7 +47,7 @@ namespace VerificationBot.SpeedrunCom
             }
 
             // Attempt to fetch game data
-            HttpResponseMessage resp = await Http.GetAsync("https://www.speedrun.com/api/v1/games/" + name);
+            HttpResponseMessage resp = await Http.GetRateLimitedAsync("https://www.speedrun.com/api/v1/games/" + name + "?requestTime=" + DateTime.UtcNow.Ticks);
             if (!resp.IsSuccessStatusCode)
             {
                 return null;
@@ -87,9 +62,24 @@ namespace VerificationBot.SpeedrunCom
             return new Game(data);
         }
 
-        public async IAsyncEnumerable<Run> GetRuns(RunStatus status = RunStatus.Any)
+        public async IAsyncEnumerable<VariableValue> GetVariablesAsync()
         {
-            string url = RunsUrl + "&orderby=submitted&direction=desc&embed=category.variables,players,level&max=200";
+            HttpResponseMessage resp = await Http.GetRateLimitedAsync(GetLink("variables"));
+            resp.EnsureSuccessStatusCode();
+            JObject obj = JObject.Parse(await resp.Content.ReadAsStringAsync());
+
+            // TODO
+            yield break;
+        }
+
+        public async IAsyncEnumerable<Run> GetRunsAsync(RunStatus status = RunStatus.Any, string userId = null)
+        {
+            string url = GetLink("runs") + "&orderby=submitted&direction=desc&embed=category.variables,level&max=200";
+            if (userId != null)
+            {
+                url += $"&user={userId}";
+            }
+
             // Runs are fetched suspiciously quickly after first call
             // Don't think NoCache header works properly, adding some garbage on the url instead
             url += "&requestTime=" + DateTime.UtcNow.Ticks;
@@ -118,7 +108,7 @@ namespace VerificationBot.SpeedrunCom
         private async IAsyncEnumerable<Run> GetRuns(string url)
         {
             JObject contentObj;
-            using (HttpResponseMessage resp = await Http.GetAsync(url))
+            using (HttpResponseMessage resp = await Http.GetRateLimitedAsync(url))
             {
                 resp.EnsureSuccessStatusCode();
 
@@ -162,6 +152,24 @@ namespace VerificationBot.SpeedrunCom
                     }
                 }
             }
+        }
+
+        private ConcurrentDictionary<string, string> _links = new();
+        private string GetLink(string linkRel)
+        {
+            if (_links.TryGetValue(linkRel, out string link))
+            {
+                return link;
+            }
+
+            JArray links = Data.TryGet()["links"]?.As<JArray>();
+
+            return _links[linkRel] = links
+                ?.FirstOrDefault(tok =>
+                    tok is JObject obj
+                    && obj.TryGet()["rel"]?.ToString() == linkRel
+                    && obj.ContainsKey("uri")
+                )?["uri"]?.ToString() ?? string.Empty;
         }
     }
 }

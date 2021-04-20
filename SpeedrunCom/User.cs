@@ -1,12 +1,15 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 
 namespace VerificationBot.SpeedrunCom
 {
-    public class User
+    public class User : ISpeedrunUser
     {
         public static HttpClient Http { get; set; } = new HttpClient();
 
@@ -19,6 +22,10 @@ namespace VerificationBot.SpeedrunCom
         private string _name;
         public string Name
             => _name ??= Data.TryGet()["names"]?["international"]?.ToString() ?? string.Empty;
+
+        private string _link;
+        public string Link
+            => _link ??= Data.TryGet()["weblink"]?.ToString() ?? string.Empty;
 
         private string _gamesUrl;
         private string GamesUrl
@@ -47,29 +54,69 @@ namespace VerificationBot.SpeedrunCom
         }
 
         private List<Game> _games;
-        public IList<Game> Games
+        public async Task<IList<Game>> GetModeratedGamesAsync()
         {
-            get
+            if (_games != null)
             {
-                if (_games != null)
-                {
-                    return _games.AsReadOnly();
-                }
-
-                JArray games = JObject.Parse(Http.GetStringAsync(GamesUrl).Result)
-                    .TryGet()["data"].As<JArray>();
-
-                _games = new List<Game>();
-                foreach (JObject obj in games)
-                {
-                    _games.Add(new Game(obj));
-                }
-
                 return _games.AsReadOnly();
             }
+
+            HttpResponseMessage resp = await Http.GetRateLimitedAsync(GamesUrl + "?requestTime=" + DateTime.UtcNow.Ticks);
+            resp.EnsureSuccessStatusCode();
+
+            JArray games = JObject.Parse(await resp.Content.ReadAsStringAsync()).TryGet()["data"].As<JArray>();
+
+            _games = new List<Game>();
+            foreach (JObject obj in games)
+            {
+                _games.Add(new Game(obj));
+            }
+
+            return _games.AsReadOnly();
         }
 
-        private static Dictionary<string, User> _userCache = new Dictionary<string, User>();
+        private string _discord;
+        public async Task<string> GetDiscordAsync()
+        {
+            const string DISCORD_SEARCH = "src=\"/images/socialmedia/discord.png\" data-id=\"";
+
+            if (_discord != null)
+            {
+                return _discord;
+            }
+
+            HttpResponseMessage resp = await Http.GetAsync(Link + "?requestTime=" + DateTime.UtcNow.Ticks);
+            resp.EnsureSuccessStatusCode();
+
+            string html = resp.Content.ReadAsStringAsync().Result;
+            int idx = html.IndexOf(DISCORD_SEARCH);
+            if (idx == -1)
+            {
+                return _discord = string.Empty;
+            }
+
+            idx += DISCORD_SEARCH.Length;
+            int nextQuote = html.IndexOf('"', idx);
+
+            if (nextQuote == -1)
+            {
+                return _discord = string.Empty;
+            }
+
+            // Max name length is 32 chars + 5 for discriminator
+            // Assuming it matched incorrect if length is too long
+            string discordUnchecked = WebUtility.HtmlDecode(html[idx..nextQuote]);
+            if (discordUnchecked.Length < 6 || discordUnchecked.Length > 37
+                || discordUnchecked[discordUnchecked.Length - 5] != '#'
+                || !int.TryParse(discordUnchecked[(discordUnchecked.Length - 4)..], out _))
+            {
+                return _discord = string.Empty;
+            }
+
+            return _discord = discordUnchecked;
+        }
+
+        private static ConcurrentDictionary<string, User> _userCache = new();
         public static async Task<User> FindById(string id)
         {
             if (_userCache.TryGetValue(id, out User user))
@@ -77,10 +124,10 @@ namespace VerificationBot.SpeedrunCom
                 return user;
             }
 
-            HttpResponseMessage resp = await Http.GetAsync("https://www.speedrun.com/api/v1/users/" + id);
+            HttpResponseMessage resp = await Http.GetRateLimitedAsync("https://www.speedrun.com/api/v1/users/" + id + "?requestTime=" + DateTime.UtcNow.Ticks);
             if (!resp.IsSuccessStatusCode)
             {
-                return _userCache[id] = null;
+                return null;
             }
 
             JObject obj = JObject.Parse(await resp.Content.ReadAsStringAsync());

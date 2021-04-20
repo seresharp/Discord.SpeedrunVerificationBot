@@ -66,6 +66,9 @@ namespace VerificationBot
         public ulong Id;
         public string Prefix = ";";
 
+        public ulong SpeedrunnerRole;
+        public ConcurrentSet<string> SpeedrunnerGames = new();
+
         public ConcurrentDictionary<ulong, ConfigChannel> Channels = new();
 
         // TODO: move these two into channel config (breaking changes yay)
