@@ -1,5 +1,4 @@
-﻿using System.Linq;
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using Disqord;
 using Disqord.Bot;
 using Disqord.Rest;
@@ -18,8 +17,7 @@ namespace VerificationBot.Modules
         [RequireCustomPermissions(Permission.Administrator)]
         public async Task SetRoleAsync(ulong roleId)
         {
-            IRole role = Context.Guild.Roles.FirstOrDefault(p => p.Key == roleId).Value
-                ?? (await Context.Guild.FetchRolesAsync()).FirstOrDefault(r => r.Id == roleId);
+            IRole role = await Context.Bot.GetRoleAsync(Context.GuildId, roleId);
             if (role == null)
             {
                 await Response("Role not found");
@@ -90,6 +88,8 @@ namespace VerificationBot.Modules
                     return;
                 }
             }
+
+            await Response("No verified runs found");
         }
     }
 }

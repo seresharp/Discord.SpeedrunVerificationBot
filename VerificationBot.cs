@@ -43,6 +43,7 @@ namespace VerificationBot
             BackgroundTasks = new BackgroundTask[]
             {
                 new GenericTask(TimeSpan.FromSeconds(5), static bot => MuteService.CheckUnmutes(bot.Config, bot.GetGuilds())),
+                new GenericTask(TimeSpan.FromMinutes(5), static bot => bot.Config.Save(Program.CONFIG_FILE)),
                 new CheckRunsTask(TimeSpan.FromMinutes(1))
             };
 
@@ -63,6 +64,39 @@ namespace VerificationBot
 
             MessageUpdated += OnMessageEdited;
             MessageDeleted += OnMessageDeleted;
+        }
+
+        public async Task<IGuild> GetGuildAsync(ulong guildId)
+            => this.GetGuild(guildId) ?? await this.FetchGuildAsync(guildId);
+
+        public async Task<IChannel> GetChannelAsync(ulong guildId, ulong channelId)
+            => this.GetChannel(guildId, channelId) ?? await this.FetchChannelAsync(channelId);
+
+        public async Task<IMessage> GetMessageAsync(ulong channelId, ulong messageId)
+            => this.GetMessage(channelId, messageId) ?? await this.FetchMessageAsync(channelId, messageId);
+
+        public async Task<IRole> GetRoleAsync(ulong guildId, ulong roleId)
+        {
+            IGuild guild = await GetGuildAsync(guildId);
+            if (guild == null)
+            {
+                return null;
+            }
+
+            return guild.Roles.FirstOrDefault(pair => pair.Key == roleId).Value
+                ?? (await guild.FetchRolesAsync()).FirstOrDefault(r => r.Id == roleId);
+        }
+
+        public async Task<IRole> GetRoleAsync(ulong guildId, string roleName)
+        {
+            IGuild guild = await GetGuildAsync(guildId);
+            if (guild == null)
+            {
+                return null;
+            }
+
+            return guild.Roles.FirstOrDefault(pair => pair.Value.Name == roleName).Value
+                ?? (await guild.FetchRolesAsync()).FirstOrDefault(r => r.Name == roleName);
         }
 
         private void UpdateBackgroundTasks(object sender, System.Timers.ElapsedEventArgs e)

@@ -25,10 +25,11 @@ namespace VerificationBot.Services
             {
                 ConfigRun run = bot.Config
                     .GetOrAddGuild(guildId)
+                    .GetOrAddChannel(e.ChannelId)
                     .RunMessages.FirstOrDefault(r => r.Value.MsgId == e.MessageId).Value;
 
                 if (run == null || run.ClaimedBy != default
-                    || (e.Message ?? await bot.FetchMessageAsync(e.ChannelId, e.MessageId)) is not IUserMessage msg
+                    || (e.Message ?? await bot.GetMessageAsync(e.ChannelId, e.MessageId)) is not IUserMessage msg
                     || msg.Author.Id != bot.CurrentUser.Id)
                 {
                     return;
@@ -49,7 +50,7 @@ namespace VerificationBot.Services
                 catch
                 {
                     // Kill the react if role adding fails
-                    IMessage msg = e.Message ?? await bot.FetchMessageAsync(e.ChannelId, e.MessageId);
+                    IMessage msg = e.Message ?? await bot.GetMessageAsync(e.ChannelId, e.MessageId);
                     if (msg == null)
                     {
                         return;
@@ -77,7 +78,7 @@ namespace VerificationBot.Services
             {
                 try
                 {
-                    IGuild guild = bot.GetGuild(guildId) ?? await bot.FetchGuildAsync(guildId);
+                    IGuild guild = await bot.GetGuildAsync(guildId);
                     IMember member = await guild.FetchMemberAsync(e.UserId);
                     await member.RevokeRoleAsync(roleId);
                 }

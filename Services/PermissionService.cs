@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 using Disqord;
 using Disqord.Rest;
@@ -59,7 +58,6 @@ namespace VerificationBot.Services
                 }
 
                 userPerms.Add(perm);
-                await context.Bot.Config.Save(Program.CONFIG_FILE);
                 return (true, $"Given permission '{perm}' to user {user.Name}#{user.Discriminator}");
             }
 
@@ -70,7 +68,6 @@ namespace VerificationBot.Services
             }
 
             userPerms.Remove(perm);
-            await context.Bot.Config.Save(Program.CONFIG_FILE);
             return (true, $"Revoked permission '{perm}' from user {user.Name}#{user.Discriminator}");
         }
 
@@ -81,9 +78,7 @@ namespace VerificationBot.Services
                 return (false, $"Permission '{permInput}' is not valid");
             }
 
-            if ((await context.Guild.FetchRolesAsync())
-                .FirstOrDefault(role => role.Id == roleId)
-                is not IRole role)
+            if (await context.Bot.GetRoleAsync(context.GuildId, roleId) is not IRole role)
             {
                 return (false, "Role not found");
             }
@@ -101,7 +96,6 @@ namespace VerificationBot.Services
                 }
 
                 rolePerms.Add(perm);
-                await context.Bot.Config.Save(Program.CONFIG_FILE);
                 return (true, $"Given permission '{perm}' to role '{role.Name}'");
             }
 
@@ -112,7 +106,6 @@ namespace VerificationBot.Services
             }
 
             rolePerms.Remove(perm);
-            await context.Bot.Config.Save(Program.CONFIG_FILE);
             return (true, $"Revoked permission '{perm}' from role '{role.Name}'");
         }
 

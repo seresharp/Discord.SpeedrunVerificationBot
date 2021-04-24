@@ -35,13 +35,13 @@ namespace VerificationBot.Modules
                 return;
             }
 
-            if (await channel.FetchMessageAsync(messageId) is not IMessage message)
+            if (await Context.Bot.GetMessageAsync(channelId, messageId) is not IMessage message)
             {
                 await Response($"Could not locate message with id {messageId}");
                 return;
             }
 
-            IRole role = (await Context.Guild.FetchRolesAsync()).FirstOrDefault(r => r.Id == roleId);
+            IRole role = await Context.Bot.GetRoleAsync(Context.GuildId, roleId);
             if (role == null)
             {
                 await Response($"Could not locate role with id {roleId}");
@@ -62,8 +62,10 @@ namespace VerificationBot.Modules
 
             Context.Bot.Config
                 .GetOrAddGuild(Context.GuildId)
-                .GetOrAddChannel(Context.ChannelId)
+                .GetOrAddChannel(channelId)
                 .AddReactRole(messageId, emote, roleId);
+
+            await Response($"Now tracking reacts to grant role '{role.Name}'");
         }
 
         [Command("removereactrole")]

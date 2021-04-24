@@ -30,7 +30,7 @@ namespace VerificationBot.Services
                         .AddField("Link", $"https://discord.com/channels/{e.GuildId.Value.RawValue}/{e.ChannelId.RawValue}/{e.MessageId.RawValue}");
                 }
 
-                if ((bot.GetChannel(channel.GuildId, channel.Id) ?? await bot.FetchChannelAsync(channel.Id)) is ITextChannel textChannel)
+                if (await bot.GetChannelAsync(channel.GuildId, channel.Id) is ITextChannel textChannel)
                 {
                     await textChannel.SendMessageAsync
                     (
@@ -72,7 +72,7 @@ namespace VerificationBot.Services
                     }
                 }
 
-                if ((bot.GetChannel(channel.GuildId, channel.Id) ?? await bot.FetchChannelAsync(channel.Id)) is ITextChannel textChannel)
+                if (await bot.GetChannelAsync(channel.GuildId, channel.Id) is ITextChannel textChannel)
                 {
                     await textChannel.SendMessageAsync
                     (

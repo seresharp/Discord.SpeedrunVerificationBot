@@ -165,7 +165,7 @@ namespace VerificationBot.Modules
         [Description("Adds the given react to the given message")]
         public async Task AddReactAsync(ulong channelId, ulong messageId, string emoji)
         {
-            IMessage msg = await Context.Bot.FetchMessageAsync(channelId, messageId);
+            IMessage msg = await Context.Bot.GetMessageAsync(channelId, messageId);
             if (msg == null)
             {
                 await Response("Message not found");

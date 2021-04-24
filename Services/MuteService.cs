@@ -53,8 +53,6 @@ namespace VerificationBot.Services
                 UnmuteTime = DateTime.Now + muteTime
             };
 
-            await config.Save(Program.CONFIG_FILE);
-
             return (true, string.Empty);
         }
 
@@ -69,7 +67,6 @@ namespace VerificationBot.Services
             await user.RevokeRoleAsync(mutedRole.Id);
 
             config.GetOrAddGuild(guild.Id).CurrentMutes.Remove(user.Id, out Mute muteInfo);
-            await config.Save(Program.CONFIG_FILE);
 
             foreach (ulong roleId in muteInfo?.RoleIds ?? new ulong[0])
             {
@@ -134,7 +131,6 @@ namespace VerificationBot.Services
 
         public static async Task CheckUnmutes(Config config, IReadOnlyDictionary<Snowflake, CachedGuild> guilds)
         {
-            bool configModified = false;
             foreach ((ulong guildId, ConfigGuild confGuild) in config.Guilds)
             {
                 foreach ((ulong userId, Mute mute) in confGuild.CurrentMutes)
@@ -142,7 +138,6 @@ namespace VerificationBot.Services
                     if (!guilds.TryGetValue(mute.GuildId, out CachedGuild guild))
                     {
                         confGuild.CurrentMutes.Remove(userId, out _);
-                        configModified = true;
                         continue;
                     }
 
@@ -158,13 +153,7 @@ namespace VerificationBot.Services
                     }
 
                     confGuild.CurrentMutes.Remove(userId, out _);
-                    configModified = true;
                 }
-            }
-
-            if (configModified)
-            {
-                await config.Save(Program.CONFIG_FILE);
             }
         }
 

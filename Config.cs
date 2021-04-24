@@ -71,10 +71,6 @@ namespace VerificationBot
 
         public ConcurrentDictionary<ulong, ConfigChannel> Channels = new();
 
-        // TODO: move these two into channel config (breaking changes yay)
-        public ConcurrentDictionary<ulong, ConcurrentSet<string>> TrackedGames = new();
-        public ConcurrentDictionary<string, ConfigRun> RunMessages = new();
-
         public ConcurrentDictionary<ulong, Mute> CurrentMutes = new();
         public ConcurrentDictionary<ulong, ConcurrentSet<string>> UserPermOverrides = new();
         public ConcurrentDictionary<ulong, ConcurrentSet<string>> RolePermOverrides = new();
@@ -83,7 +79,7 @@ namespace VerificationBot
             => Channels.GetOrAdd(channelId, _ => new ConfigChannel { Id = channelId, GuildId = Id });
 
         public ConcurrentSet<string> GetOrAddGameList(ulong channelId)
-            => TrackedGames.GetOrAdd(channelId, _ => new());
+            => GetOrAddChannel(channelId).TrackedGames;
 
         public ConcurrentSet<string> GetOrAddUserPerms(ulong userId)
             => UserPermOverrides.GetOrAdd(userId, _ => new());
@@ -98,6 +94,9 @@ namespace VerificationBot
         public ulong GuildId;
 
         public ConcurrentSet<ulong> ChangelogChannels = new();
+
+        public ConcurrentSet<string> TrackedGames = new();
+        public ConcurrentDictionary<string, ConfigRun> RunMessages = new();
 
         [JsonProperty]
         private ConcurrentDictionary<ulong, ConcurrentDictionary<string, ulong>> ReactRoles = new();

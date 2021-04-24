@@ -37,8 +37,6 @@ namespace VerificationBot.Modules
             }
 
             trackedGames.Add(game.Id);
-            await Context.Bot.Config.Save(Program.CONFIG_FILE);
-
             await Response($"Now tracking game '{game.Name}'");
         }
 
@@ -63,21 +61,20 @@ namespace VerificationBot.Modules
                 return;
             }
 
-            foreach ((string runId, ConfigRun run) in confGuild.RunMessages)
+            ConcurrentDictionary<string, ConfigRun> runMessages = confGuild.GetOrAddChannel(Context.ChannelId).RunMessages;
+            foreach ((string runId, ConfigRun run) in runMessages)
             {
-                IMessage msg = await Context.Channel.FetchMessageAsync(run.MsgId);
+                IMessage msg = await Context.Bot.GetMessageAsync(Context.ChannelId, run.MsgId);
                 if (msg?.Author?.Id != Context.Bot.CurrentUser.Id)
                 {
                     continue;
                 }
 
                 await msg.DeleteAsync();
-                confGuild.RunMessages.Remove(runId, out _);
+                runMessages.Remove(runId, out _);
             }
 
             trackedGames.Remove(game.Id);
-            await Context.Bot.Config.Save(Program.CONFIG_FILE);
-
             await Response($"No longer tracking game '{game.Name}' in this channel");
         }
     }
