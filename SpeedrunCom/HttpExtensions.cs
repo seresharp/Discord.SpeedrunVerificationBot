@@ -5,7 +5,7 @@ namespace System.Net.Http
 {
     public static class HttpExtensions
     {
-        private static readonly ConcurrentDictionary<long, byte> RecentRequests = new();
+        private static readonly ConcurrentSet<long> RecentRequests = new();
 
         public static async Task<HttpResponseMessage> GetRateLimitedAsync(this HttpClient http, string requestUri)
         {
@@ -14,11 +14,11 @@ namespace System.Net.Http
                 while (true)
                 {
                     long currTime = Environment.TickCount64;
-                    foreach ((long time, _) in RecentRequests)
+                    foreach (long time in RecentRequests)
                     {
                         if (currTime - time >= 60000)
                         {
-                            RecentRequests.TryRemove(time, out _);
+                            RecentRequests.Remove(time);
                         }
                     }
 
@@ -32,7 +32,7 @@ namespace System.Net.Http
             }
 
             HttpResponseMessage resp = await http.GetAsync(requestUri);
-            RecentRequests.TryAdd(Environment.TickCount64, default);
+            RecentRequests.Add(Environment.TickCount64);
 
             if ((int)resp.StatusCode == 420)
             {

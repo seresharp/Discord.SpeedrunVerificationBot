@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -116,14 +115,8 @@ namespace VerificationBot.SpeedrunCom
             return _discord = discordUnchecked;
         }
 
-        private static ConcurrentDictionary<string, User> _userCache = new();
         public static async Task<User> FindById(string id)
         {
-            if (_userCache.TryGetValue(id, out User user))
-            {
-                return user;
-            }
-
             HttpResponseMessage resp = await Http.GetRateLimitedAsync("https://www.speedrun.com/api/v1/users/" + id + "?requestTime=" + DateTime.UtcNow.Ticks);
             if (!resp.IsSuccessStatusCode)
             {
@@ -133,10 +126,10 @@ namespace VerificationBot.SpeedrunCom
             JObject obj = JObject.Parse(await resp.Content.ReadAsStringAsync());
             if (!obj.TryGetValue("data", out JObject data))
             {
-                return _userCache[id] = null;
+                return null;
             }
 
-            return _userCache[id] = new User(data);
+            return new User(data);
         }
 
         public User(JObject data) => Data = data;
