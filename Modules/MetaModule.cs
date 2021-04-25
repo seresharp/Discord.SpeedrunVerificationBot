@@ -79,21 +79,5 @@ namespace VerificationBot.Modules
         [Description("Responds pong")]
         public async Task PingAsync()
             => await Response("pong");
-
-        [Command("reacttest")]
-        public async Task ReactTestAsync()
-        {
-            Type t = typeof(DiscordClientBase);
-            var f = t.GetField(nameof(DiscordClientBase.ReactionAdded), System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-            Delegate d = f.GetValue(Context.Bot) as Delegate;
-            Delegate[] subscribers = d?.GetInvocationList();
-            if (subscribers == null || subscribers.Length == 0)
-            {
-                await Response("No subscribers");
-                return;
-            }
-
-            await Response(string.Join(", ", subscribers.Select(s => s.Target.GetType().Name + "." + s.Method.Name)));
-        }
     }
 }
