@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Disqord;
 using Disqord.Rest;
@@ -26,6 +27,11 @@ namespace VerificationBot.BackgroundTasks
                         continue;
                     }
 
+                    // This is reused between games within channels, so needs to be declared in this scope
+                    // But no point setting it before it's needed, might result in unnecessary api calls
+                    // This is necessary because disqord doesn't ever cache messages from before the bot started
+                    Dictionary<ulong, IMessage> messages = null;
+
                     foreach (string gameId in confChannel.TrackedGames)
                     {
                         if (await Game.Find(gameId) is not Game game)
@@ -37,12 +43,28 @@ namespace VerificationBot.BackgroundTasks
 
                         await foreach (Run run in game.GetRunsAsync(RunStatus.New))
                         {
+                            // Found a game with runs, message cache is now needed
+                            if (messages == null)
+                            {
+                                messages = (await channel.FetchMessagesAsync()).ToDictionary(m => m.Id.RawValue);
+                            }
+
                             // Check for already existing message
                             if (oldMessages.TryGetValue(run.Id, out ConfigRun confRun))
                             {
-                                IMessage existingMsg = await bot.GetMessageAsync(channel.Id, confRun.MsgId);
-                                if (existingMsg?.Author?.Id == bot.CurrentUser.Id)
+                                if (!messages.TryGetValue(confRun.MsgId, out IMessage existingMsg))
                                 {
+                                    existingMsg = await bot.GetMessageAsync(channel.Id, confRun.MsgId);
+                                }
+
+                                if (existingMsg == null)
+                                {
+                                    // Not removing null messages causes manually deleted ones to be immediately forgotten on repost
+                                    oldMessages.Remove(run.Id);
+                                }
+                                else if (existingMsg.Author.Id == bot.CurrentUser.Id)
+                                {
+                                    // If there's already a message, no need to continue on to posting a new one
                                     oldMessages.Remove(run.Id);
                                     continue;
                                 }
@@ -56,6 +78,7 @@ namespace VerificationBot.BackgroundTasks
                                 _ => "mm':'ss'.'FFF"
                             }).TrimEnd('.');
 
+                            // Turns ugly leading 00: into 0:
                             if (time.StartsWith("0"))
                             {
                                 time = time[1..];
@@ -74,6 +97,7 @@ namespace VerificationBot.BackgroundTasks
                                     .Build()
                             );
 
+                            // TODO: better system than hard-coded react
                             await msg.AddReactionAsync(new LocalCustomEmoji(774026811797405707, "claim_run"));
 
                             confChannel.RunMessages[run.Id] = new ConfigRun
@@ -88,8 +112,13 @@ namespace VerificationBot.BackgroundTasks
                         foreach ((string runId, ConfigRun confRun) in oldMessages)
                         {
                             confChannel.RunMessages.Remove(runId, out _);
-                            if (await bot.GetMessageAsync(channel.Id, confRun.MsgId) is not IMessage msg
-                                || msg.Author.Id != bot.CurrentUser.Id)
+
+                            if (!messages.TryGetValue(confRun.MsgId, out IMessage msg))
+                            {
+                                msg = await bot.GetMessageAsync(channel.Id, confRun.MsgId);
+                            }
+
+                            if (msg == null || msg.Author.Id != bot.CurrentUser.Id)
                             {
                                 continue;
                             }
