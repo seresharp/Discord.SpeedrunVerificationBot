@@ -10,7 +10,10 @@ namespace VerificationBot.Services
     {
         public static async Task HandleMessageEditedAsync(VerificationBot bot, MessageUpdatedEventArgs e)
         {
-            if (e.GuildId == null || e.OldMessage == null)
+            // Sometimes fires for messages that haven't been edited
+            // Unsure if this is a bug, or some other form of message update
+            if (e.GuildId == null || e.OldMessage == null
+                || e?.OldMessage?.Content == e?.NewMessage?.Content)
             {
                 return;
             }
